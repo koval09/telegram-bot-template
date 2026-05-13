@@ -1,0 +1,243 @@
+# ==============================================================================
+# docker-compose.yml — telegram-bot-template
+#
+# Compose profiles (Требования 16.1, 17.3):
+#   • dev       — bot runs in long-polling mode, port 8080 exposed for /healthz,
+#                 reads .env. Default profile for local development.
+#   • prod      — bot runs in webhook mode, NO ports exposed (traffic enters
+#                 through a reverse proxy on the host network). Reads .env.prod.
+#   • tools     — one-off ops services (alembic migrations, etc.). Run with
+#                 `docker compose --profile tools run --rm migrate`.
+#
+# Stateful services (postgres, redis) are unprofiled, so they come up under
+# every profile. Use:
+#
+#   docker compose --profile dev  up -d   # local polling stack
+#   docker compose --profile prod up -d   # production webhook stack
+#   docker compose --profile tools run --rm migrate    # run migrations
+#
+# `restart: unless-stopped` is set on every long-lived service so the host
+# brings them back after a reboot but `docker compose down` still wins.
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # Postgres — always available (no profile)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: bot
+      POSTGRES_PASSWORD: bot
+      POSTGRES_DB: bot
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bot -d bot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Port published only for local dev / psql access. In production, comment
+    # this block out and reach Postgres via the internal compose network.
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # Redis — always available (no profile)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Same note as postgres: comment out in production.
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # Bot — DEV profile (long-polling, port published for /healthz access)
+  # ----------------------------------------------------------------------------
+  bot:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: telegram-bot-template:dev
+    env_file:
+      - .env
+    environment:
+      # Force polling mode in dev regardless of what .env says.
+      TG_MODE: polling
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # Bot — PROD profile (webhook, no published ports; traffic via reverse proxy)
+  # ----------------------------------------------------------------------------
+  # The reverse proxy (Caddy/Nginx) terminates TLS on the host and forwards
+  # /tg/webhook/<secret> and /tonconnect-manifest.json to bot:8080 over the
+  # internal compose network. See the commented Caddy snippet at the bottom of
+  # this file for a ready-to-use config.
+  bot-prod:
+    profiles: ["prod"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_VERSION: "${BUILD_VERSION:-0.1.0}"
+        VCS_REF: "${VCS_REF:-unknown}"
+    image: telegram-bot-template:${BUILD_VERSION:-0.1.0}
+    env_file:
+      - .env.prod
+    environment:
+      # Force webhook mode in prod.
+      TG_MODE: webhook
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Intentionally NO `ports:` — the reverse proxy reaches the bot through the
+    # default compose network at http://bot-prod:8080. Exposing 8080 publicly
+    # would bypass TLS and the proxy's webhook-secret allow-list.
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # Migrate — TOOLS profile (one-off Alembic upgrade)
+  # ----------------------------------------------------------------------------
+  # Usage:
+  #   docker compose --profile tools run --rm migrate                  # upgrade head
+  #   docker compose --profile tools run --rm migrate downgrade -1     # rollback one
+  #
+  # The container reuses the runtime image (so dependencies match) but overrides
+  # ENTRYPOINT to run `alembic`. It reads .env so DB_DSN points at the same
+  # Postgres as the bot.
+  migrate:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: telegram-bot-template:dev
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["alembic"]
+    command: ["upgrade", "head"]
+    restart: "no"
+
+volumes:
+  pgdata:
+  redisdata:
+
+# ==============================================================================
+# Reverse proxy snippet — Caddy (recommended, auto-TLS via Let's Encrypt)
+# ==============================================================================
+# To opt in:
+#   1. Save the snippet below as Caddyfile next to this docker-compose.yml.
+#   2. Replace bot.example.com with your real domain (DNS A/AAAA → this host).
+#   3. Replace <WEBHOOK_SECRET> with the value of WEBHOOK_SECRET from .env.prod.
+#   4. Add the caddy service below (uncomment the YAML block) and restart:
+#        docker compose --profile prod up -d
+#
+# ------------------------------------------------------------------------------
+# Caddyfile
+# ------------------------------------------------------------------------------
+# bot.example.com {
+#     encode zstd gzip
+#
+#     # Telegram webhook — only the path with the secret is exposed.
+#     # Everything else under /tg/* is rejected so a leaked secret is the only
+#     # way in (Telegram also requires HTTPS + valid cert, which Caddy handles).
+#     handle /tg/webhook/<WEBHOOK_SECRET> {
+#         reverse_proxy bot-prod:8080
+#     }
+#
+#     # TON Connect manifest must be reachable over public HTTPS for wallets.
+#     handle /tonconnect-manifest.json {
+#         reverse_proxy bot-prod:8080
+#     }
+#
+#     # Optional TON Connect callback (only if your flow uses it).
+#     handle /tonconnect/callback {
+#         reverse_proxy bot-prod:8080
+#     }
+#
+#     # Everything else: 404. Do NOT proxy /healthz publicly.
+#     handle {
+#         respond "Not found" 404
+#     }
+# }
+#
+# ------------------------------------------------------------------------------
+# docker-compose service for Caddy (uncomment to enable)
+# ------------------------------------------------------------------------------
+# services:
+#   caddy:
+#     profiles: ["prod"]
+#     image: caddy:2-alpine
+#     ports:
+#       - "80:80"
+#       - "443:443"
+#       - "443:443/udp"   # HTTP/3
+#     volumes:
+#       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+#       - caddydata:/data
+#       - caddyconfig:/config
+#     depends_on:
+#       - bot-prod
+#     restart: unless-stopped
+#
+# volumes:
+#   caddydata:
+#   caddyconfig:
+#
+# ==============================================================================
+# Reverse proxy snippet — Nginx (alternative; you provide the TLS cert yourself)
+# ==============================================================================
+# server {
+#     listen 443 ssl http2;
+#     server_name bot.example.com;
+#
+#     ssl_certificate     /etc/letsencrypt/live/bot.example.com/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/bot.example.com/privkey.pem;
+#
+#     # Telegram webhook
+#     location = /tg/webhook/<WEBHOOK_SECRET> {
+#         proxy_pass         http://bot-prod:8080;
+#         proxy_http_version 1.1;
+#         proxy_set_header   Host              $host;
+#         proxy_set_header   X-Real-IP         $remote_addr;
+#         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+#         proxy_set_header   X-Forwarded-Proto $scheme;
+#     }
+#
+#     # TON Connect manifest
+#     location = /tonconnect-manifest.json {
+#         proxy_pass http://bot-prod:8080;
+#     }
+#
+#     # Optional TON Connect callback
+#     location = /tonconnect/callback {
+#         proxy_pass http://bot-prod:8080;
+#     }
+#
+#     # Reject everything else
+#     location / {
+#         return 404;
+#     }
+# }

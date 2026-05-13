@@ -1,0 +1,198 @@
+# English translation catalog.
+# Requirement 10.1, 10.4
+# Flat dict[str, str]. Keys MUST mirror ru.yml; values are English equivalents.
+
+# --- common ---------------------------------------------------------------
+common.ok: 'OK'
+common.error: 'Error.'
+
+# --- core.start -----------------------------------------------------------
+core.start.welcome_new: |-
+  Hi, {name}!
+  You are registered. Available commands:
+  /profile — your profile
+  /cancel — cancel the current dialog
+core.start.welcome_returning: |-
+  Welcome back, {name}!
+  /profile — your profile
+  /cancel — cancel the current dialog
+
+# --- core.cancel ----------------------------------------------------------
+core.cancel.no_dialog: 'No active dialog.'
+core.cancel.cancelled: 'Dialog cancelled.'
+
+# --- profile --------------------------------------------------------------
+profile.header: '<b>Profile</b>'
+profile.label.id: 'ID'
+profile.label.name: 'Name'
+profile.label.language: 'Language'
+profile.label.registered: 'Registered'
+profile.label.status: 'Status'
+profile.label.ton_wallet: 'TON wallet'
+profile.label.referrals: 'Referrals'
+profile.status.active: 'active'
+profile.status.banned: 'banned'
+profile.status.muted: 'muted'
+profile.status.pending_captcha: 'pending captcha'
+profile.banned_notice: 'Your access to the bot is restricted.'
+profile.language.not_supported: 'Language is not supported'
+profile.language.changed: 'Language: {code}'
+profile.wallet.not_connected: 'No wallet connected'
+profile.wallet.disconnected: 'Wallet disconnected'
+profile.buttons.wallet_disconnect: 'Disconnect wallet'
+
+# --- admin.usage ----------------------------------------------------------
+admin.usage.ban: 'Usage: /ban &lt;telegram_id&gt; &lt;reason&gt;'
+admin.usage.unban: 'Usage: /unban &lt;telegram_id&gt;'
+admin.usage.mute: |-
+  Usage: /mute &lt;telegram_id&gt; &lt;duration&gt; [reason]
+  Duration: 10m, 2h, 1d, 3w, 45s
+admin.usage.unmute: 'Usage: /unmute &lt;telegram_id&gt;'
+admin.usage.kick: 'Usage: /kick &lt;telegram_id&gt;'
+admin.usage.grant_admin: 'Usage: /grant_admin &lt;telegram_id&gt;'
+admin.usage.revoke_admin: 'Usage: /revoke_admin &lt;telegram_id&gt;'
+
+# --- admin.errors ---------------------------------------------------------
+admin.error.bad_telegram_id: 'Invalid telegram_id.'
+admin.error.bad_duration: 'Invalid duration. Examples: 10m, 2h, 1d.'
+admin.error.kick_group_only: 'The /kick command works only in a group chat.'
+
+# --- admin.audit ----------------------------------------------------------
+admin.audit.header: '<b>Audit log</b> — page {page}/{total_pages} (total: {total})'
+admin.audit.empty: 'Audit log is empty.'
+admin.audit.button.prev: '← Prev'
+admin.audit.button.next: 'Next →'
+admin.audit.button.page: '{page}/{total_pages}'
+
+# --- moderation (ModerationResult messages) -------------------------------
+moderation.reason.invalid_length: 'Reason must be 1..{max} characters.'
+moderation.target.not_found: 'User not found.'
+moderation.forbidden: 'Insufficient permissions.'
+moderation.ban.ok: 'User {id} has been banned.'
+moderation.unban.ok: 'User {id} has been unbanned.'
+moderation.mute.invalid_duration: 'Mute duration must be between 1 minute and 30 days.'
+moderation.mute.reason_too_long: 'Reason must not exceed {max} characters.'
+moderation.mute.ok: 'User {id} has been muted until {until}.'
+moderation.unmute.ok: 'User {id} has been unmuted.'
+moderation.kick.need_admin: 'The bot needs admin rights in the chat.'
+moderation.kick.failed: 'Failed to kick the user from the chat.'
+moderation.kick.timeout: 'Telegram API did not respond in time.'
+moderation.kick.ok: 'User {id} has been kicked from the chat.'
+moderation.grant_admin.already: 'User is already an admin.'
+moderation.grant_admin.ok: 'User {id} has been granted the admin role.'
+moderation.revoke_admin.superadmin_protected: 'The superadmin role can only be revoked via environment variables.'
+moderation.revoke_admin.not_admin: 'User does not have the admin role.'
+moderation.revoke_admin.ok: 'Admin role has been revoked from user {id}.'
+
+# --- middlewares ----------------------------------------------------------
+middlewares.registration.error: 'Registration failed. Please try again later.'
+middlewares.status_gate.muted: 'You are temporarily not allowed to message the bot.'
+
+# --- subscriptions (task 19.2) --------------------------------------------
+subscriptions.join_required: 'To use the bot, please subscribe to the channels:'
+subscriptions.still_missing: 'You are still not subscribed to: {channels}'
+subscriptions.confirmed: 'Subscription confirmed.'
+subscriptions.confirmed_with_cmd: 'Subscription confirmed. Please repeat the command: {command}'
+subscriptions.button.recheck: 'Check subscription'
+subscriptions.toast.ok: 'Subscription confirmed'
+subscriptions.toast.missing: 'Still missing subscriptions'
+
+# --- referrals (task 21.1) ------------------------------------------------
+referrals.feature_off: 'Referrals are unavailable.'
+referrals.link: |-
+  Your referral link:
+  {link}
+referrals.stats.header: 'Your referrals'
+referrals.stats.count: 'Invited: {count}'
+referrals.stats.last: 'Last invite: {date}'
+referrals.stats.last_none: 'Last invite: none yet'
+
+# --- fsm (used by task 17.2 middleware) -----------------------------------
+fsm.unavailable: 'Dialogs are temporarily unavailable. Please try again later.'
+
+# --- ton ------------------------------------------------------------------
+ton.feature_off: 'Wallet connection is unavailable.'
+ton.already_connected: 'You already have a wallet connected. Use /disconnect_wallet to unlink it.'
+ton.start_failed: 'Failed to start the connection. Please try again later.'
+ton.caption: |-
+  🔗 <a href="{deeplink}">Open wallet</a>
+  Scan the QR code or open the link in your wallet app.
+  Valid until: {expires}.
+ton.plain: |-
+  🔗 <a href="{deeplink}">Open wallet</a>
+  Open the link in your wallet app.
+  Valid until: {expires}.
+ton.failure.no_session: 'Session not found.'
+ton.failure.timeout: 'The waiting period has expired.'
+ton.failure.telegram_id_mismatch: 'Could not verify the wallet signature.'
+ton.failure.nonce: 'Could not verify the wallet signature.'
+ton.failure.signature: 'Could not verify the wallet signature.'
+ton.failure.payload_shape: 'Could not verify the wallet signature.'
+ton.failure.timestamp_out_of_window: 'Could not verify the wallet signature.'
+ton.failure.wallet_pubkey_length: 'Could not verify the wallet signature.'
+ton.failure.signature_length: 'Could not verify the wallet signature.'
+ton.failure.address_hash_length: 'Could not verify the wallet signature.'
+ton.failure.sdk_error: 'Connection error. Please try again.'
+ton.failure.default: 'Failed to connect the wallet.'
+ton.success: '✅ Wallet connected: <code>{address}</code> ({wallet})'
+ton.disconnect.none: 'You have no connected wallet.'
+ton.disconnect.failed: 'Failed to disconnect the wallet. Please try again later.'
+ton.disconnect.ok: 'Wallet disconnected.'
+ton.session.expired: '⌛ Session expired. Run /connect_wallet again.'
+
+# --- broadcasts (task 22.1) -----------------------------------------------
+broadcasts.queue_full: 'Broadcast queue is full ({n}/{cap}). Please try again later.'
+broadcasts.prompt_text: |-
+  Enter the broadcast text ({min}..{max} characters). Send /cancel to abort.
+broadcasts.text_invalid: 'Text must be between {min} and {max} characters. Try again.'
+broadcasts.prompt_filter: |-
+  Choose the recipient filter:
+  • <code>all</code> — all users
+  • <code>active_30d</code> — active within the last 30 days
+  • <code>lang:&lt;code&gt;</code> — by language (e.g. <code>lang:en</code>)
+broadcasts.filter_invalid: 'Invalid filter. Allowed: <code>all</code>, <code>active_30d</code>, <code>lang:&lt;code&gt;</code>.'
+broadcasts.filter_lang_unsupported: 'Language {code} is not supported. Supported: {supported}.'
+broadcasts.preview: |-
+  <b>Confirm broadcast</b>
+  Filter: <code>{filter}</code>
+  Text ({length}):
+  {text}
+broadcasts.button.yes: 'Send'
+broadcasts.button.no: 'Cancel'
+broadcasts.enqueued: 'Job queued (id={id}). Position: {pos}'
+broadcasts.cancelled: 'Broadcast cancelled.'
+broadcasts.queue_error: 'Could not enqueue the broadcast. Please try again later.'
+broadcasts.cancel_usage: 'Usage: /broadcast_cancel &lt;uuid&gt;'
+broadcasts.cancel_bad_id: 'Invalid broadcast id.'
+broadcasts.cancel_ok: 'Cancel flag set for broadcast {id}.'
+broadcasts.cancel_error: 'Could not set the cancel flag. Please try again later.'
+
+# --- broadcasts worker reports (task 22.2) --------------------------------
+broadcasts.report.final: 'Broadcast {id} completed. Total: {t}, delivered: {d}, failed: {f}, blocked: {b}.'
+broadcasts.report.cancelled: 'Broadcast {id} cancelled. Delivered: {d}, failed: {f}, blocked: {b}.'
+
+# --- stats (task 23.1) ----------------------------------------------------
+stats.feature_off: 'Statistics are unavailable.'
+stats.error: 'Failed to fetch statistics. Please try again later.'
+stats.overview: |-
+  <b>Statistics</b>
+  Total users: {total}
+  Active in last 24h: {active_24h}
+  Active in last 7d: {active_7d}
+  Active in last 30d: {active_30d}
+  Banned: {banned}
+  Connected wallets: {wallets}
+  Snapshot taken at: {at}
+
+# --- payments.stars (task 25.1) ------------------------------------------
+payments.stars.title: 'Purchase: {purpose}'
+payments.stars.description: 'Payment of {amount} XTR — {purpose}'
+payments.stars.label: '{purpose}'
+payments.stars.pre_checkout_error: 'Payment not recognized. Please create a new invoice.'
+payments.stars.invoice_created: 'Invoice created. Open the link to pay: {link}'
+payments.stars.paid: 'Payment received ({amount} XTR). Thank you!'
+
+# --- payments.ton (task 26.2) --------------------------------------------
+payments.ton.notify.paid: 'TON payment confirmed. Thank you!'
+payments.ton.notify.mismatch: 'A TON transfer with a different amount was received. Administrator has been notified.'
+payments.ton.notify.expired: 'TON payment window has expired.'

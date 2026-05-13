@@ -1,0 +1,200 @@
+# Russian translation catalog.
+# Requirement 10.1, 10.4
+# Flat dict[str, str]. Keys mirror usage sites (dot-namespaced).
+# Values are byte-exact copies of hardcoded strings from app/core, app/admin,
+# app/ton, app/scheduler — so the i18n swap in task 17.2 preserves behavior.
+
+# --- common ---------------------------------------------------------------
+common.ok: 'OK'
+common.error: 'Ошибка.'
+
+# --- core.start -----------------------------------------------------------
+core.start.welcome_new: |-
+  Привет, {name}!
+  Вы зарегистрированы. Доступные команды:
+  /profile — ваш профиль
+  /cancel — отменить текущий диалог
+core.start.welcome_returning: |-
+  С возвращением, {name}!
+  /profile — ваш профиль
+  /cancel — отменить текущий диалог
+
+# --- core.cancel ----------------------------------------------------------
+core.cancel.no_dialog: 'Нет активного диалога.'
+core.cancel.cancelled: 'Диалог отменён.'
+
+# --- profile --------------------------------------------------------------
+profile.header: '<b>Профиль</b>'
+profile.label.id: 'ID'
+profile.label.name: 'Имя'
+profile.label.language: 'Язык'
+profile.label.registered: 'Регистрация'
+profile.label.status: 'Статус'
+profile.label.ton_wallet: 'TON-кошелёк'
+profile.label.referrals: 'Приглашено'
+profile.status.active: 'активен'
+profile.status.banned: 'заблокирован'
+profile.status.muted: 'ограничен'
+profile.status.pending_captcha: 'ожидание капчи'
+profile.banned_notice: 'Ваш доступ к боту ограничен.'
+profile.language.not_supported: 'Язык не поддерживается'
+profile.language.changed: 'Язык: {code}'
+profile.wallet.not_connected: 'Кошелёк не привязан'
+profile.wallet.disconnected: 'Кошелёк отвязан'
+profile.buttons.wallet_disconnect: 'Отвязать кошелёк'
+
+# --- admin.usage ----------------------------------------------------------
+admin.usage.ban: 'Использование: /ban &lt;telegram_id&gt; &lt;причина&gt;'
+admin.usage.unban: 'Использование: /unban &lt;telegram_id&gt;'
+admin.usage.mute: |-
+  Использование: /mute &lt;telegram_id&gt; &lt;длительность&gt; [причина]
+  Длительность: 10m, 2h, 1d, 3w, 45s
+admin.usage.unmute: 'Использование: /unmute &lt;telegram_id&gt;'
+admin.usage.kick: 'Использование: /kick &lt;telegram_id&gt;'
+admin.usage.grant_admin: 'Использование: /grant_admin &lt;telegram_id&gt;'
+admin.usage.revoke_admin: 'Использование: /revoke_admin &lt;telegram_id&gt;'
+
+# --- admin.errors ---------------------------------------------------------
+admin.error.bad_telegram_id: 'Некорректный telegram_id.'
+admin.error.bad_duration: 'Некорректная длительность. Примеры: 10m, 2h, 1d.'
+admin.error.kick_group_only: 'Команда /kick доступна только в групповом чате.'
+
+# --- admin.audit ----------------------------------------------------------
+admin.audit.header: '<b>Журнал</b> — страница {page}/{total_pages} (всего: {total})'
+admin.audit.empty: 'Журнал пуст.'
+admin.audit.button.prev: '← Пред'
+admin.audit.button.next: 'След →'
+admin.audit.button.page: '{page}/{total_pages}'
+
+# --- moderation (ModerationResult messages) -------------------------------
+moderation.reason.invalid_length: 'Причина должна быть 1..{max} символов.'
+moderation.target.not_found: 'Пользователь не найден.'
+moderation.forbidden: 'Недостаточно прав.'
+moderation.ban.ok: 'Пользователь {id} заблокирован.'
+moderation.unban.ok: 'Пользователь {id} разблокирован.'
+moderation.mute.invalid_duration: 'Длительность мута должна быть от 1 минуты до 30 дней.'
+moderation.mute.reason_too_long: 'Причина не должна превышать {max} символов.'
+moderation.mute.ok: 'Пользователь {id} замьючен до {until}.'
+moderation.unmute.ok: 'Мут пользователя {id} снят.'
+moderation.kick.need_admin: 'Боту нужны права администратора в чате.'
+moderation.kick.failed: 'Не удалось исключить пользователя из чата.'
+moderation.kick.timeout: 'Telegram API не ответил вовремя.'
+moderation.kick.ok: 'Пользователь {id} исключён из чата.'
+moderation.grant_admin.already: 'Пользователь уже админ.'
+moderation.grant_admin.ok: 'Пользователь {id} получил роль admin.'
+moderation.revoke_admin.superadmin_protected: 'Роль superadmin снимается только через переменные окружения.'
+moderation.revoke_admin.not_admin: 'У пользователя нет роли admin.'
+moderation.revoke_admin.ok: 'Роль admin у пользователя {id} снята.'
+
+# --- middlewares ----------------------------------------------------------
+middlewares.registration.error: 'Произошла ошибка при регистрации. Попробуйте позже.'
+middlewares.status_gate.muted: 'Вы временно не можете писать боту.'
+
+# --- subscriptions (task 19.2) --------------------------------------------
+subscriptions.join_required: 'Для использования бота подпишитесь на каналы:'
+subscriptions.still_missing: 'Вы ещё не подписаны на: {channels}'
+subscriptions.confirmed: 'Подписка подтверждена.'
+subscriptions.confirmed_with_cmd: 'Подписка подтверждена. Повторите команду: {command}'
+subscriptions.button.recheck: 'Проверить подписку'
+subscriptions.toast.ok: 'Подписка подтверждена'
+subscriptions.toast.missing: 'Всё ещё не хватает подписок'
+
+# --- referrals (task 21.1) ------------------------------------------------
+referrals.feature_off: 'Реферальная система недоступна.'
+referrals.link: |-
+  Ваша реферальная ссылка:
+  {link}
+referrals.stats.header: 'Ваши рефералы'
+referrals.stats.count: 'Приглашено: {count}'
+referrals.stats.last: 'Последнее приглашение: {date}'
+referrals.stats.last_none: 'Последнее приглашение: ещё нет'
+
+# --- fsm (used by task 17.2 middleware) -----------------------------------
+fsm.unavailable: 'Диалоги временно недоступны. Попробуйте позже.'
+
+# --- ton ------------------------------------------------------------------
+ton.feature_off: 'Функция привязки кошелька недоступна.'
+ton.already_connected: 'У вас уже привязан кошелёк. Используйте /disconnect_wallet чтобы отвязать.'
+ton.start_failed: 'Не удалось запустить подключение. Попробуйте позже.'
+ton.caption: |-
+  🔗 <a href="{deeplink}">Открыть кошелёк</a>
+  Отсканируйте QR или откройте ссылку в приложении кошелька.
+  Срок действия: до {expires}.
+ton.plain: |-
+  🔗 <a href="{deeplink}">Открыть кошелёк</a>
+  Откройте ссылку в приложении кошелька.
+  Срок действия: до {expires}.
+ton.failure.no_session: 'Сессия не найдена.'
+ton.failure.timeout: 'Время ожидания истекло.'
+ton.failure.telegram_id_mismatch: 'Не удалось проверить подпись кошелька.'
+ton.failure.nonce: 'Не удалось проверить подпись кошелька.'
+ton.failure.signature: 'Не удалось проверить подпись кошелька.'
+ton.failure.payload_shape: 'Не удалось проверить подпись кошелька.'
+ton.failure.timestamp_out_of_window: 'Не удалось проверить подпись кошелька.'
+ton.failure.wallet_pubkey_length: 'Не удалось проверить подпись кошелька.'
+ton.failure.signature_length: 'Не удалось проверить подпись кошелька.'
+ton.failure.address_hash_length: 'Не удалось проверить подпись кошелька.'
+ton.failure.sdk_error: 'Ошибка подключения. Попробуйте ещё раз.'
+ton.failure.default: 'Не удалось подключить кошелёк.'
+ton.success: '✅ Кошелёк привязан: <code>{address}</code> ({wallet})'
+ton.disconnect.none: 'У вас нет привязанного кошелька.'
+ton.disconnect.failed: 'Не удалось отвязать кошелёк. Попробуйте позже.'
+ton.disconnect.ok: 'Кошелёк отвязан.'
+ton.session.expired: '⌛ Сессия истекла. Запустите /connect_wallet заново.'
+
+# --- broadcasts (task 22.1) -----------------------------------------------
+broadcasts.queue_full: 'Очередь переполнена ({n}/{cap}). Попробуйте позже.'
+broadcasts.prompt_text: |-
+  Введите текст рассылки (от {min} до {max} символов). Отправьте /cancel чтобы отменить.
+broadcasts.text_invalid: 'Текст должен быть от {min} до {max} символов. Попробуйте ещё раз.'
+broadcasts.prompt_filter: |-
+  Выберите фильтр получателей:
+  • <code>all</code> — все пользователи
+  • <code>active_30d</code> — активные за 30 дней
+  • <code>lang:&lt;код&gt;</code> — по языку (например, <code>lang:ru</code>)
+broadcasts.filter_invalid: 'Неверный фильтр. Допустимо: <code>all</code>, <code>active_30d</code>, <code>lang:&lt;код&gt;</code>.'
+broadcasts.filter_lang_unsupported: 'Язык {code} не поддерживается. Поддерживаемые: {supported}.'
+broadcasts.preview: |-
+  <b>Подтвердите рассылку</b>
+  Фильтр: <code>{filter}</code>
+  Текст ({length}):
+  {text}
+broadcasts.button.yes: 'Отправить'
+broadcasts.button.no: 'Отмена'
+broadcasts.enqueued: 'Задача добавлена в очередь (id={id}). Позиция: {pos}'
+broadcasts.cancelled: 'Рассылка отменена.'
+broadcasts.queue_error: 'Не удалось поставить задачу в очередь. Попробуйте позже.'
+broadcasts.cancel_usage: 'Использование: /broadcast_cancel &lt;uuid&gt;'
+broadcasts.cancel_bad_id: 'Некорректный идентификатор рассылки.'
+broadcasts.cancel_ok: 'Флаг отмены установлен для рассылки {id}.'
+broadcasts.cancel_error: 'Не удалось установить флаг отмены. Попробуйте позже.'
+
+# --- broadcasts worker reports (task 22.2) --------------------------------
+broadcasts.report.final: 'Рассылка {id} завершена. Всего: {t}, доставлено: {d}, не доставлено: {f}, заблокировали: {b}.'
+broadcasts.report.cancelled: 'Рассылка {id} отменена. Доставлено: {d}, не доставлено: {f}, заблокировали: {b}.'
+
+# --- stats (task 23.1) ----------------------------------------------------
+stats.feature_off: 'Статистика недоступна.'
+stats.error: 'Не удалось получить статистику. Попробуйте позже.'
+stats.overview: |-
+  <b>Статистика</b>
+  Всего пользователей: {total}
+  Активны за 24ч: {active_24h}
+  Активны за 7д: {active_7d}
+  Активны за 30д: {active_30d}
+  Заблокированы: {banned}
+  Привязанные кошельки: {wallets}
+  На момент: {at}
+
+# --- payments.stars (task 25.1) ------------------------------------------
+payments.stars.title: 'Покупка: {purpose}'
+payments.stars.description: 'Оплата {amount} XTR — {purpose}'
+payments.stars.label: '{purpose}'
+payments.stars.pre_checkout_error: 'Платёж не распознан. Попробуйте создать счёт заново.'
+payments.stars.invoice_created: 'Счёт создан. Откройте ссылку для оплаты: {link}'
+payments.stars.paid: 'Оплата получена ({amount} XTR). Спасибо!'
+
+# --- payments.ton (task 26.2) --------------------------------------------
+payments.ton.notify.paid: 'Оплата TON подтверждена. Спасибо!'
+payments.ton.notify.mismatch: 'Получен перевод TON с другой суммой. Администратор уведомлён.'
+payments.ton.notify.expired: 'Время оплаты TON истекло.'

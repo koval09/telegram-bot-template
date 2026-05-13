@@ -1,0 +1,253 @@
+# ==============================================================================
+# .github/workflows/ci.yml — telegram-bot-template
+#
+# Pipeline (all jobs run on Ubuntu, Python 3.11 to match Dockerfile / pyproject):
+#
+#   • lint        — ruff + mypy on app/.
+#   • test        — pytest -m "not contract" with Postgres + Redis services.
+#   • contract    — pytest -m contract (in-process stubs, services kept for
+#                   parity with future integration tests).
+#   • migrations  — alembic upgrade head → downgrade base → upgrade head on a
+#                   throwaway Postgres service.
+#   • summary     — fan-in job that depends on the four above, handy for a
+#                   single required check in branch protection rules.
+#
+# Triggers: push and pull_request targeting main.
+# Cache:    pip wheels via actions/setup-python's built-in pip cache.
+#
+# Requirements covered:
+#   • 16.1 — MVP-stage runs with Telegram Bot API + Postgres + Redis only.
+#   • 16.4 — adding new integrations does not break already-included modules:
+#            the matrix/services here pin the Stage-1 baseline.
+# ==============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to keep the queue short.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  # Pin to the same minor as the Dockerfile runtime (python:3.11.10-slim).
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Lint — ruff + mypy. No services needed.
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint (ruff + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check app tests
+
+      - name: Mypy
+        run: mypy app
+
+  # ---------------------------------------------------------------------------
+  # Test — fast suite (everything except contract tests).
+  # Postgres + Redis are spun up as GitHub services so any future integration
+  # test that lands without -m contract gets a working stack out of the box.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test (pytest -m "not contract")
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: bot
+          POSTGRES_PASSWORD: bot
+          POSTGRES_DB: bot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bot -d bot"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DB_DSN: postgresql+asyncpg://bot:bot@localhost:5432/bot
+      REDIS_URL: redis://localhost:6379/0
+      BOT_TOKEN: "test:test"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run pytest (non-contract)
+        run: pytest -q -m "not contract"
+
+  # ---------------------------------------------------------------------------
+  # Contract — pytest -m contract.
+  # The current contract suite uses in-process stubs, but Postgres/Redis are
+  # provided so adding a real-stack contract test later doesn't require a CI
+  # rewrite.
+  # ---------------------------------------------------------------------------
+  contract:
+    name: Test (pytest -m contract)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: bot
+          POSTGRES_PASSWORD: bot
+          POSTGRES_DB: bot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bot -d bot"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DB_DSN: postgresql+asyncpg://bot:bot@localhost:5432/bot
+      REDIS_URL: redis://localhost:6379/0
+      BOT_TOKEN: "test:test"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run pytest (contract)
+        run: pytest -q -m contract
+
+  # ---------------------------------------------------------------------------
+  # Migrations — round-trip every Alembic revision against a clean Postgres.
+  # `upgrade head → downgrade base → upgrade head` catches missing downgrade
+  # branches and non-idempotent migrations.
+  # ---------------------------------------------------------------------------
+  migrations:
+    name: Migrations (upgrade/downgrade round-trip)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: bot
+          POSTGRES_PASSWORD: bot
+          POSTGRES_DB: bot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bot -d bot"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # alembic env.py reads DB_DSN; asyncpg dialect matches the runtime engine.
+      DB_DSN: postgresql+asyncpg://bot:bot@localhost:5432/bot
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Alembic upgrade head
+        run: alembic upgrade head
+
+      - name: Alembic downgrade base
+        run: alembic downgrade base
+
+      - name: Alembic upgrade head (again)
+        run: alembic upgrade head
+
+  # ---------------------------------------------------------------------------
+  # Summary — single fan-in target for branch protection rules.
+  # ---------------------------------------------------------------------------
+  summary:
+    name: CI summary
+    runs-on: ubuntu-latest
+    needs: [lint, test, contract, migrations]
+    if: always()
+    steps:
+      - name: Verify all required jobs passed
+        run: |
+          echo "lint=${{ needs.lint.result }}"
+          echo "test=${{ needs.test.result }}"
+          echo "contract=${{ needs.contract.result }}"
+          echo "migrations=${{ needs.migrations.result }}"
+          if [ "${{ needs.lint.result }}" != "success" ] \
+             || [ "${{ needs.test.result }}" != "success" ] \
+             || [ "${{ needs.contract.result }}" != "success" ] \
+             || [ "${{ needs.migrations.result }}" != "success" ]; then
+            echo "::error::One or more required jobs failed."
+            exit 1
+          fi
+          echo "All required jobs succeeded."
