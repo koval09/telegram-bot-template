@@ -122,6 +122,21 @@ class RegistrationService:
             return RegistrationResult(user=_sentinel_user(tg_user, now), created=False, db_error=True)
 
         if created:
+            # Audit-log "user joined" once per real user. Username + name
+            # are captured here so the journal renders nicely without
+            # fetching the row again.
+            await self._audit.record_info(
+                event="user_joined",
+                actor_id=tg_user.id,
+                target_id=tg_user.id,
+                details={
+                    "username": tg_user.username,
+                    "name": (tg_user.first_name or tg_user.last_name or ""),
+                    "language": tg_user.language_code,
+                },
+                now=now,
+            )
+
             ref_id = _parse_referrer_id(start_arg)
             if ref_id is not None and ref_id != tg_user.id:
                 # Only honour the referrer if it points to a real user (Req 1.8).
@@ -129,13 +144,19 @@ class RegistrationService:
                 if referrer is not None:
                     saved = await self._users.set_referrer(tg_user.id, ref_id)
                     if saved:
-                        # Try to settle the credit immediately. The
-                        # crediting service decides whether the gates
-                        # (captcha / subscriptions) currently allow it
-                        # and short-circuits when they do not. With both
-                        # gates off this is the user's "credit on
-                        # /start" case.
-                        if self._crediting is not None:
+                        # Settle the credit on /start ONLY when neither
+                        # gate (captcha, subscriptions) is enabled. With
+                        # any gate active the credit is deferred to the
+                        # post-gate trigger (captcha pass / subscription
+                        # recheck), which call ``try_credit`` themselves.
+                        # Calling it here would race the captcha
+                        # middleware which has not yet flipped the status
+                        # to ``pending_captcha`` — see Req 7.2 antifraud
+                        # refinement.
+                        if (
+                            self._crediting is not None
+                            and not self._crediting.gates_active
+                        ):
                             try:
                                 outcome = await self._crediting.try_credit(
                                     tg_user.id
@@ -156,11 +177,17 @@ class RegistrationService:
                                     )
                                 else:
                                     log.debug(
-                                        "registration.credit_deferred",
+                                        "registration.credit_skipped_on_start",
                                         telegram_id=tg_user.id,
                                         referrer_id=ref_id,
                                         reason=outcome.reason,
                                     )
+                        else:
+                            log.debug(
+                                "registration.credit_deferred_to_gates",
+                                telegram_id=tg_user.id,
+                                referrer_id=ref_id,
+                            )
                         user.referrer_id = ref_id
 
         return RegistrationResult(user=user, created=created)

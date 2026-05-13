@@ -1,29 +1,35 @@
-"""Модуль_Подписок — aiogram middleware that gates commands behind channel membership.
+"""Модуль_Подписок — aiogram middleware that gates updates behind channel membership.
 
 Behaviour (design § Модуль_Подписок, Req 12.1 / 12.2 / 12.3):
 
-1. Non-:class:`Message` events (callback queries, chat-member updates, etc.)
-   and non-command messages (no leading ``/``) pass through unchanged — the
-   module only guards *command* invocations (Req 12.1).
-2. ``/start`` and ``/help`` are whitelisted so a brand-new or confused user
-   can always reach entry-point docs regardless of subscription state.
-3. For any other command we call :meth:`SubscriptionChecker.check`. If it
-   returns a non-empty list of :class:`~.checker.MissingChannel`:
+1. Bot-side bootstrap traffic always passes through unchanged:
 
-   * The original command text (plus args) is stored in FSM under
-     ``pending_cmd`` so the re-check callback can tell the user what to
-     repeat once they have joined (Req 12.3).
-   * A single :class:`InlineKeyboardMarkup` is sent: one "join" button per
+   * ``/start`` (with or without a ``ref_<id>`` payload) — the entry-point
+     command. Blocking it would prevent registration, including referral
+     attribution.
+   * ``/help``.
+   * The captcha callback (``callback_data`` starting with ``cap:``) so
+     the user can actually solve the captcha.
+   * The recheck callback (``subs:recheck``) — that *is* the way to
+     escape the gate.
+
+2. For every other update from a user with at least one
+   :class:`MissingChannel` the middleware:
+
+   * If it is a :class:`Message` with text starting with ``/``, stores
+     ``pending_cmd`` in FSM so the re-check callback can tell the user
+     what to repeat once they have joined (Req 12.3).
+   * Sends a single :class:`InlineKeyboardMarkup`: one "join" button per
      missing channel (URL when :attr:`MissingChannel.invite_url` is set,
-     otherwise a plain callback-noop button so the name is still visible),
-     followed by a "Проверить подписку" button with
+     otherwise a callback-noop button so the channel identifier is still
+     visible), followed by a "Проверить подписку" button with
      ``callback_data="subs:recheck"``.
-   * The handler chain is short-circuited by returning ``None``.
+   * Short-circuits the handler chain by returning ``None``.
 
 The companion router in :mod:`app.features.subscriptions.handlers` handles
 ``subs:recheck`` and does the mirror-image work: re-run the probe; on
-success read ``pending_cmd`` from FSM and ask the user to repeat it, on
-failure re-render the same keyboard with an "ещё не подписаны" header.
+success read ``pending_cmd`` from FSM and announce, on failure re-render
+the same keyboard with an "ещё не подписаны" header.
 
 Requirements: 12.1, 12.2, 12.3.
 """
@@ -37,6 +43,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from aiogram import BaseMiddleware
 from aiogram.types import (
+    CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
@@ -55,11 +62,16 @@ log = structlog.get_logger(__name__)
 # Public constants — shared with the recheck router.
 # ---------------------------------------------------------------------------
 
-WHITELISTED_COMMANDS: frozenset[str] = frozenset({"/start", "/help"})
-"""Commands that bypass the gate (design § Модуль_Подписок, Req 12.1)."""
+WHITELISTED_COMMANDS: frozenset[str] = frozenset({"/help"})
+"""Commands that bypass the gate unconditionally. ``/start`` no longer sits
+here on its own — only ``/start ref_<id>`` is bypassed, and that exception
+is checked dynamically inside :func:`_is_bypass_event`."""
 
 RECHECK_CALLBACK_DATA = "subs:recheck"
 """``callback_data`` of the "Проверить подписку" button."""
+
+CAPTCHA_CALLBACK_PREFIX = "cap:"
+"""``callback_data`` prefix used by the captcha service buttons."""
 
 _NOOP_CALLBACK_DATA = "subs:noop"
 """Used for channel buttons that have no ``invite_url``: clicking does
@@ -77,11 +89,12 @@ _MSG_BUTTON_RECHECK = "Проверить подписку"
 class SubscriptionsMiddleware(BaseMiddleware):
     """Outer middleware implementing Req 12.1 / 12.2 / 12.3.
 
-    Registered by ``app/bot.py`` on ``dispatcher.message`` (callback queries
-    do *not* need this middleware — the re-check callback is served by the
-    router regardless of subscription state, and other callback flows
-    happen after the user already passed the gate once via the originating
-    message).
+    Registered by ``app/bot.py`` on both ``dispatcher.message`` and
+    ``dispatcher.callback_query`` so every interaction (text, slash
+    command, button press) is gated until the user joins every required
+    channel. Bootstrap traffic — ``/start``, ``/help``, the captcha
+    callback and the recheck button itself — bypasses the gate so
+    registration and gate-clearing flows still work.
 
     The checker is supplied by the container under the
     ``feature_subscriptions`` flag; when that flag is off, neither the
@@ -97,43 +110,35 @@ class SubscriptionsMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        # Subscription gate only applies to Message events with a command
-        # payload. Everything else (callback queries, edited messages with
-        # no text, service updates, …) passes through untouched.
-        if not isinstance(event, Message):
+        if _is_bypass_event(event):
             return await handler(event, data)
 
-        text = (event.text or "").strip()
-        if not text.startswith("/"):
-            return await handler(event, data)
-
-        command, args = _split_command(text)
-        if command in WHITELISTED_COMMANDS:
-            return await handler(event, data)
-
-        from_user = event.from_user
+        from_user = getattr(event, "from_user", None)
         if from_user is None:
-            # Should not happen for a command, but the checker takes a
-            # concrete ``user_id`` so we cannot probe without one.
             return await handler(event, data)
 
         missing = await self._checker.check(from_user.id)
         if not missing:
             return await handler(event, data)
 
-        # ----- Save pending_cmd so the recheck handler can echo it back.
+        # ----- Save pending_cmd so the recheck handler can echo it back
+        # for slash-command messages. Free-form text and callback queries
+        # do not need replay — the user can repeat the action manually.
         state: FSMContext | None = data.get("state")
-        if state is not None:
-            try:
-                await state.update_data(
-                    pending_cmd={"command": command, "args": args}
-                )
-            except Exception as exc:
-                log.warning(
-                    "subscriptions.middleware.fsm_save_failed",
-                    user_id=from_user.id,
-                    error=repr(exc),
-                )
+        if state is not None and isinstance(event, Message):
+            text = (event.text or "").strip()
+            if text.startswith("/"):
+                command, args = _split_command(text)
+                try:
+                    await state.update_data(
+                        pending_cmd={"command": command, "args": args}
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "subscriptions.middleware.fsm_save_failed",
+                        user_id=from_user.id,
+                        error=repr(exc),
+                    )
 
         translator = data.get("_")
         header = _translate(
@@ -144,15 +149,66 @@ class SubscriptionsMiddleware(BaseMiddleware):
             # Telegram send can fail for reasons outside our control
             # (user blocked the bot, chat deleted, …); the middleware
             # must never raise for any update.
-            await event.answer(header, reply_markup=keyboard)
+            if isinstance(event, Message):
+                await event.answer(header, reply_markup=keyboard)
+            elif isinstance(event, CallbackQuery):
+                # Acknowledge the spinner and surface the gate in the
+                # originating chat so the user sees the same UI as for
+                # text-driven gating.
+                await event.answer()
+                if event.message is not None:
+                    await event.message.answer(header, reply_markup=keyboard)
 
         log.info(
             "subscriptions.middleware.gated",
             user_id=from_user.id,
-            command=command,
+            event_kind=type(event).__name__,
             missing=[m.chat_id for m in missing],
         )
         return None
+
+
+# ---------------------------------------------------------------------------
+# Bypass logic — bootstrap traffic that must reach handlers regardless of
+# subscription state.
+# ---------------------------------------------------------------------------
+
+
+def _is_bypass_event(event: TelegramObject) -> bool:
+    """Return True when the gate must let the event through unchanged.
+
+    Bypass list:
+
+    * captcha button presses (``cap:*``) — the user must be able to answer
+      the captcha even before subscribing;
+    * the recheck button (``subs:recheck``) — that *is* the way out of the
+      gate;
+    * ``/help`` — minimal docs must always be reachable;
+    * ``/start ref_<digits>`` — the referral entry-point. The bot has to
+      see the ``ref_<id>`` payload at least once to record ``referrer_id``;
+      after that the user goes through the full gate on every other
+      message, including a plain ``/start``.
+
+    Plain ``/start`` (without the ``ref_…`` payload) is intentionally
+    NOT in the bypass list — it should also trigger the gate so users
+    cannot keep re-running ``/start`` to skip the subscription requirement.
+    """
+    if isinstance(event, CallbackQuery):
+        data = event.data or ""
+        return data == RECHECK_CALLBACK_DATA or data.startswith(
+            CAPTCHA_CALLBACK_PREFIX
+        )
+    if isinstance(event, Message):
+        text = (event.text or "").strip()
+        if not text.startswith("/"):
+            return False
+        command, args = _split_command(text)
+        if command == "/help":
+            return True
+        if command == "/start" and args.startswith("ref_"):
+            return True
+        return False
+    return False
 
 
 # ---------------------------------------------------------------------------

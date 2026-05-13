@@ -135,6 +135,22 @@ async def handle_recheck(
         pending_cmd=(pending_cmd or {}).get("command"),
     )
 
+    # Audit-log the confirmed subscription so admins see it in /audit.
+    audit = data.get("audit")
+    if audit is not None:
+        try:
+            await audit.record_info(
+                event="subscriptions_confirmed",
+                actor_id=user.id,
+                target_id=user.id,
+            )
+        except Exception as exc:
+            log.warning(
+                "subscriptions.recheck.audit_failed",
+                user_id=user.id,
+                error=repr(exc),
+            )
+
 
 # ---------------------------------------------------------------------------
 # Rendering helpers

@@ -14,11 +14,20 @@ from redis.asyncio import Redis
 
 
 async def create_redis(redis_url: str) -> Redis:
-    """Create an async Redis client ready for use."""
+    """Create an async Redis client ready for use.
+
+    ``socket_timeout`` is intentionally left at the redis-py default
+    (``None``, i.e. no timeout) so that long-running blocking commands
+    such as ``BRPOP`` (used by the broadcast worker with a 5-second
+    poll budget) are not interrupted by a shorter socket timeout.
+    Per-call deadlines are enforced explicitly via ``asyncio.wait_for``
+    in the health-check (see :func:`redis_ping`).
+    ``socket_connect_timeout`` is kept short so a misconfigured host
+    fails fast at startup.
+    """
     client: Redis = Redis.from_url(
         redis_url,
         decode_responses=True,
-        socket_timeout=2.0,
         socket_connect_timeout=2.0,
     )
     # Fail fast: a single ping to verify connectivity on startup.

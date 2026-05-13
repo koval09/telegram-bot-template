@@ -76,7 +76,7 @@ LABEL org.opencontainers.image.title="telegram-bot-template" \
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH=/install/bin:$PATH \
-    PYTHONPATH=/app
+    PYTHONPATH=/app:/install/lib/python3.11/site-packages
 
 # Runtime needs:
 #   - curl: for the HEALTHCHECK below

@@ -36,6 +36,24 @@ MAX_MESSAGE_LEN = 1000
 _TRUNC_SUFFIX = " ... [truncated]"
 
 
+# Whitelist of high-signal events that earn a row in ``action_log``.
+# Everything else (``startup``, ``audit_cleanup``, ``missing_translation``,
+# ``ratelimit_blocked``, etc.) is logged via structlog only — admins do
+# not need to scroll past process-level chatter to find moderation events.
+_AUDITED_INFO_EVENTS: frozenset[str] = frozenset({
+    "user_joined",
+    "captcha_passed",
+    "subscriptions_confirmed",
+})
+
+_AUDITED_WARNING_EVENTS: frozenset[str] = frozenset({
+    "captcha_block",
+    "admin_cmd_unauthorized",
+    "grant_admin_denied",
+    "revoke_admin_denied",
+})
+
+
 class ModerationAction:
     """String constants for the fixed set of moderation actions (Req 6.1)."""
 
@@ -126,6 +144,12 @@ class AuditLog:
         details: dict[str, Any] | None = None,
         now: datetime | None = None,
     ) -> None:
+        # Skip technical warnings (i18n holes, ratelimit blocks, retry
+        # diagnostics) — they belong in stdout structlog, not in the
+        # admin-facing audit journal.
+        if event not in _AUDITED_WARNING_EVENTS:
+            log.warning("audit.skip_warning", event=event, actor_id=actor_id, details=details)
+            return
         message = _format_details(event, details)
         await self._save(
             AuditRecordInput(
@@ -143,12 +167,22 @@ class AuditLog:
         event: str,
         details: dict[str, Any] | None = None,
         now: datetime | None = None,
+        actor_id: int | None = None,
+        target_id: int | None = None,
     ) -> None:
+        # Same filter as ``record_warning``: only events on the whitelist
+        # land in the audit journal. ``startup`` / ``audit_cleanup`` are
+        # logged via structlog and stay out of the admin's view.
+        if event not in _AUDITED_INFO_EVENTS:
+            log.info("audit.skip_info", event=event, details=details)
+            return
         message = _format_details(event, details)
         await self._save(
             AuditRecordInput(
                 level=AuditLevel.info,
                 created_at=now or self._clock(),
+                actor_id=actor_id,
+                target_id=target_id,
                 action=event,
                 message=_truncate(message, MAX_MESSAGE_LEN),
             )

@@ -14,6 +14,8 @@ Commands (registered on the ``admin_router``):
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from aiogram import Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import (
@@ -26,6 +28,10 @@ from aiogram.types import (
 from app.admin.filters import IsAdminFilter, IsSuperadminFilter
 from app.admin.user_manager import ModerationResult, UserManager, parse_duration
 from app.core.services.audit import AuditLog
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from app.config import Settings
+    from app.core.repositories.users import UsersRepo
 
 router = Router(name="admin")
 
@@ -54,21 +60,78 @@ async def _reply(message: Message, result: ModerationResult) -> None:
     await message.answer(result.message or ("OK" if result.ok else "Ошибка."))
 
 
+async def _resolve_target(
+    raw: str,
+    message: Message,
+    users_repo: UsersRepo,
+) -> tuple[int | None, str | None]:
+    """Resolve an admin-supplied target to a ``telegram_id``.
+
+    Accepts in priority order:
+
+    1. Plain integer telegram id.
+    2. ``@username`` — looked up in ``users`` (case-insensitive). Telegram
+       does not expose a username→id API for bots, so this only works when
+       the user has already interacted with this bot at least once.
+    3. The admin replied to a message in a group — the original sender's
+       id from ``message.reply_to_message.from_user`` is used (handled by
+       the caller; not in this helper).
+
+    Returns ``(telegram_id, error_message)``: on success ``error_message``
+    is ``None``; on failure ``telegram_id`` is ``None`` and a localized
+    explanation is provided.
+    """
+    raw = raw.strip()
+    if not raw:
+        return None, "Не указан получатель."
+
+    # 1. Numeric id.
+    parsed = _parse_int(raw)
+    if parsed is not None:
+        return parsed, None
+
+    # 2. @username — look up in our DB.
+    if raw.startswith("@") or _looks_like_username(raw):
+        user = await users_repo.get_by_username(raw)
+        if user is None:
+            return None, (
+                f"Пользователь {raw} не найден в базе. "
+                "Бот не может найти его по @username, пока он не "
+                "напишет сюда хотя бы один раз. "
+                "Используйте telegram_id вместо @username."
+            )
+        return int(user.telegram_id), None
+
+    return None, "Некорректный telegram_id или @username."
+
+
+def _looks_like_username(s: str) -> bool:
+    """Cheap heuristic: a non-numeric, non-empty string of allowed chars."""
+    if not s:
+        return False
+    return all(ch.isalnum() or ch in {"_"} for ch in s)
+
+
 # --------------------------------------------------------------------------
 # /ban, /unban
 # --------------------------------------------------------------------------
 
 @router.message(Command("ban"), IsAdminFilter())
 async def handle_ban(
-    message: Message, command: CommandObject, user_manager: UserManager
+    message: Message,
+    command: CommandObject,
+    user_manager: UserManager,
+    users_repo: UsersRepo,
 ) -> None:
     args = _split_args(command, 2)
     if args is None:
-        await message.answer("Использование: /ban &lt;telegram_id&gt; &lt;причина&gt;")
+        await message.answer(
+            "Использование: /ban &lt;telegram_id|@username&gt; &lt;причина&gt;"
+        )
         return
-    target = _parse_int(args[0])
+    target, err = await _resolve_target(args[0], message, users_repo)
     if target is None:
-        await message.answer("Некорректный telegram_id.")
+        await message.answer(err or "Некорректный получатель.")
         return
     assert message.from_user is not None
     await _reply(message, await user_manager.ban(message.from_user.id, target, args[1]))
@@ -76,15 +139,18 @@ async def handle_ban(
 
 @router.message(Command("unban"), IsAdminFilter())
 async def handle_unban(
-    message: Message, command: CommandObject, user_manager: UserManager
+    message: Message,
+    command: CommandObject,
+    user_manager: UserManager,
+    users_repo: UsersRepo,
 ) -> None:
     args = _split_args(command, 1)
     if args is None:
-        await message.answer("Использование: /unban &lt;telegram_id&gt;")
+        await message.answer("Использование: /unban &lt;telegram_id|@username&gt;")
         return
-    target = _parse_int(args[0])
+    target, err = await _resolve_target(args[0], message, users_repo)
     if target is None:
-        await message.answer("Некорректный telegram_id.")
+        await message.answer(err or "Некорректный получатель.")
         return
     assert message.from_user is not None
     await _reply(message, await user_manager.unban(message.from_user.id, target))
@@ -96,23 +162,26 @@ async def handle_unban(
 
 @router.message(Command("mute"), IsAdminFilter())
 async def handle_mute(
-    message: Message, command: CommandObject, user_manager: UserManager
+    message: Message,
+    command: CommandObject,
+    user_manager: UserManager,
+    users_repo: UsersRepo,
 ) -> None:
-    # /mute <id> <duration> [reason...]
+    # /mute <id|@username> <duration> [reason...]
     args = _split_args(command, 3)
     if args is None:
         # Allow 2-arg form (without reason).
         two = _split_args(command, 2)
         if two is None:
             await message.answer(
-                "Использование: /mute &lt;telegram_id&gt; &lt;длительность&gt; [причина]\n"
+                "Использование: /mute &lt;telegram_id|@username&gt; &lt;длительность&gt; [причина]\n"
                 "Длительность: 10m, 2h, 1d, 3w, 45s"
             )
             return
         args = [two[0], two[1], ""]
-    target = _parse_int(args[0])
+    target, err = await _resolve_target(args[0], message, users_repo)
     if target is None:
-        await message.answer("Некорректный telegram_id.")
+        await message.answer(err or "Некорректный получатель.")
         return
     duration = parse_duration(args[1])
     if duration is None:
@@ -124,15 +193,18 @@ async def handle_mute(
 
 @router.message(Command("unmute"), IsAdminFilter())
 async def handle_unmute(
-    message: Message, command: CommandObject, user_manager: UserManager
+    message: Message,
+    command: CommandObject,
+    user_manager: UserManager,
+    users_repo: UsersRepo,
 ) -> None:
     args = _split_args(command, 1)
     if args is None:
-        await message.answer("Использование: /unmute &lt;telegram_id&gt;")
+        await message.answer("Использование: /unmute &lt;telegram_id|@username&gt;")
         return
-    target = _parse_int(args[0])
+    target, err = await _resolve_target(args[0], message, users_repo)
     if target is None:
-        await message.answer("Некорректный telegram_id.")
+        await message.answer(err or "Некорректный получатель.")
         return
     assert message.from_user is not None
     await _reply(message, await user_manager.unmute(message.from_user.id, target))
@@ -144,18 +216,21 @@ async def handle_unmute(
 
 @router.message(Command("kick"), IsAdminFilter())
 async def handle_kick(
-    message: Message, command: CommandObject, user_manager: UserManager
+    message: Message,
+    command: CommandObject,
+    user_manager: UserManager,
+    users_repo: UsersRepo,
 ) -> None:
     if message.chat.type not in {"group", "supergroup"}:
         await message.answer("Команда /kick доступна только в групповом чате.")
         return
     args = _split_args(command, 1)
     if args is None:
-        await message.answer("Использование: /kick &lt;telegram_id&gt;")
+        await message.answer("Использование: /kick &lt;telegram_id|@username&gt;")
         return
-    target = _parse_int(args[0])
+    target, err = await _resolve_target(args[0], message, users_repo)
     if target is None:
-        await message.answer("Некорректный telegram_id.")
+        await message.answer(err or "Некорректный получатель.")
         return
     assert message.from_user is not None
     await _reply(
@@ -170,34 +245,60 @@ async def handle_kick(
 
 @router.message(Command("grant_admin"), IsSuperadminFilter())
 async def handle_grant_admin(
-    message: Message, command: CommandObject, user_manager: UserManager
+    message: Message,
+    command: CommandObject,
+    user_manager: UserManager,
+    users_repo: UsersRepo,
+    settings: Settings,
 ) -> None:
     args = _split_args(command, 1)
     if args is None:
-        await message.answer("Использование: /grant_admin &lt;telegram_id&gt;")
+        await message.answer(
+            "Использование: /grant_admin &lt;telegram_id|@username&gt;"
+        )
         return
-    target = _parse_int(args[0])
+    target, err = await _resolve_target(args[0], message, users_repo)
     if target is None:
-        await message.answer("Некорректный telegram_id.")
+        await message.answer(err or "Некорректный получатель.")
         return
     assert message.from_user is not None
-    await _reply(message, await user_manager.grant_admin(message.from_user.id, target))
+    result = await user_manager.grant_admin(message.from_user.id, target)
+    if result.ok and message.bot is not None:
+        # Refresh the promoted user's blue "/" menu so admin commands
+        # appear immediately without waiting for a bot restart.
+        from app.admin.commands_setup import apply_role_commands
+        from app.core.db.models import UserRole
+
+        await apply_role_commands(message.bot, settings, target, UserRole.admin)
+    await _reply(message, result)
 
 
 @router.message(Command("revoke_admin"), IsSuperadminFilter())
 async def handle_revoke_admin(
-    message: Message, command: CommandObject, user_manager: UserManager
+    message: Message,
+    command: CommandObject,
+    user_manager: UserManager,
+    users_repo: UsersRepo,
+    settings: Settings,
 ) -> None:
     args = _split_args(command, 1)
     if args is None:
-        await message.answer("Использование: /revoke_admin &lt;telegram_id&gt;")
+        await message.answer(
+            "Использование: /revoke_admin &lt;telegram_id|@username&gt;"
+        )
         return
-    target = _parse_int(args[0])
+    target, err = await _resolve_target(args[0], message, users_repo)
     if target is None:
-        await message.answer("Некорректный telegram_id.")
+        await message.answer(err or "Некорректный получатель.")
         return
     assert message.from_user is not None
-    await _reply(message, await user_manager.revoke_admin(message.from_user.id, target))
+    result = await user_manager.revoke_admin(message.from_user.id, target)
+    if result.ok and message.bot is not None:
+        # Drop chat-scoped commands so the user falls back to the public set.
+        from app.admin.commands_setup import reset_user_commands
+
+        await reset_user_commands(message.bot, target)
+    await _reply(message, result)
 
 
 # --------------------------------------------------------------------------

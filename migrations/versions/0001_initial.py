@@ -43,14 +43,6 @@ def upgrade() -> None:
     # plain Integer there. Postgres keeps BIGSERIAL-equivalent behaviour.
     BigIntPk = sa.BigInteger() if is_pg else sa.Integer()
 
-    if is_pg:
-        USER_STATUS.create(bind, checkfirst=True)
-        USER_ROLE.create(bind, checkfirst=True)
-        AUDIT_LEVEL.create(bind, checkfirst=True)
-        PAYMENT_PROVIDER.create(bind, checkfirst=True)
-        PAYMENT_STATUS.create(bind, checkfirst=True)
-        BROADCAST_STATUS.create(bind, checkfirst=True)
-
     # ------------------------------------------------------------------ users
     op.create_table(
         "users",

@@ -93,6 +93,16 @@ async def _amain() -> int:
 
     await _log_startup_versions(services)
 
+    # Push per-role command lists to Telegram so the blue "/" menu shows
+    # only what the current user is allowed to run (admins see moderation
+    # commands, regular users do not).
+    from app.admin.commands_setup import apply_startup_commands
+
+    try:
+        await apply_startup_commands(services)
+    except Exception as exc:
+        log.warning("commands_setup.startup_failed", error=repr(exc))
+
     # Stage 5 — spin up the BroadcastWorker consumer when the feature is on.
     # Container only constructs it; starting the asyncio task here keeps
     # startup order predictable and ensures ``stop()`` runs before we close

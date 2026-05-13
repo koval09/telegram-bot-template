@@ -121,22 +121,32 @@ async def test_non_message_event_passes_through() -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_command_message_passes_through() -> None:
+async def test_non_command_message_is_gated() -> None:
+    """Non-command text now triggers the gate (every message is checked)."""
     checker = _StubChecker(replies=[[MissingChannel(chat_id="@ch")]])
     mw = SubscriptionsMiddleware(checker)  # type: ignore[arg-type]
-    msg = _make_message("hello")
+    replies = _Replies()
+    msg = _make_message("hello", replies=replies)
 
     result = await mw(_recording_handler, msg, {})
 
-    assert result == "handled"
-    assert checker.calls == []
+    assert result is None
+    assert checker.calls == [42]
+    assert len(replies.sent) == 1
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "command", ["/start", "/help", "/start@mybot ref=abc", "/help@mybot"]
+    "command",
+    [
+        "/help",
+        "/help@mybot",
+        "/start ref_42",
+        "/start@mybot ref_42",
+    ],
 )
 async def test_whitelisted_commands_bypass(command: str) -> None:
+    """Bypass list: /help and /start ref_<id>. Plain /start no longer bypasses."""
     checker = _StubChecker(replies=[[MissingChannel(chat_id="@ch")]])
     mw = SubscriptionsMiddleware(checker)  # type: ignore[arg-type]
     msg = _make_message(command)

@@ -50,6 +50,27 @@ class UsersRepo:
         async with self._sm() as session:
             return await session.get(User, telegram_id)
 
+    async def get_by_username(self, username: str) -> User | None:
+        """Look up a user by Telegram ``@username`` (case-insensitive).
+
+        Telegram's Bot API does not expose a username→id resolver, so this
+        method is the only way an admin can address a user by handle. It
+        only finds users whose row was already populated by the
+        registration middleware (i.e. anyone who has interacted with the
+        bot at least once). The leading ``@`` is stripped automatically.
+
+        Returns ``None`` when no row matches; the caller is expected to
+        surface a "не видел этого пользователя — пришли telegram_id"
+        message in that case.
+        """
+        clean = username.strip().lstrip("@").lower()
+        if not clean:
+            return None
+        async with self._sm() as session:
+            stmt = select(User).where(func.lower(User.username) == clean)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
     async def count_active_since(self, since: datetime) -> int:
         async with self._sm() as session:
             stmt = select(func.count()).select_from(User).where(User.last_seen_at >= since)

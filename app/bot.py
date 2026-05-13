@@ -40,8 +40,14 @@ def register_middlewares(dispatcher: Dispatcher, services: AppServices) -> None:
     reg_mw = RegistrationMiddleware(services.registration)
     status_mw = StatusGateMiddleware(services.redis, services.users_repo)
 
-    # ``update`` middlewares run for every incoming update type.
-    dispatcher.update.outer_middleware(reg_mw)
+    # Attach to per-event observers (not ``dispatcher.update.outer_middleware``):
+    # ``Update`` has no ``from_user`` attribute, so the registration middleware
+    # at the update level would silently skip every event. Binding to
+    # ``message`` and ``callback_query`` ensures aiogram passes the concrete
+    # event type and ``data["user"]`` is populated for handlers and downstream
+    # middleware (status_gate, antispam, i18n, subscriptions).
+    dispatcher.message.outer_middleware(reg_mw)
+    dispatcher.callback_query.outer_middleware(reg_mw)
     dispatcher.message.outer_middleware(status_mw)
     dispatcher.callback_query.outer_middleware(status_mw)
 
@@ -79,10 +85,15 @@ def register_middlewares(dispatcher: Dispatcher, services: AppServices) -> None:
         subs_mw = SubscriptionsMiddleware(services.subscriptions.checker)
         # Registered AFTER I18n so the design order
         # (Registration → StatusGate → Antispam → I18n → Subscriptions → handler)
-        # holds. Only bound to ``dispatcher.message`` because the gate
-        # applies to command invocations; callback queries (including the
-        # re-check button itself) must reach the router regardless.
+        # holds. Bound to BOTH ``message`` and ``callback_query`` so any
+        # interaction with the bot (text, slash command, button press) is
+        # gated until the user joins every required channel. The middleware
+        # itself whitelists the bootstrap traffic — ``/start``, ``/help``,
+        # the captcha buttons (``cap:*``) and the recheck button
+        # (``subs:recheck``) — so registration and gate-clearing flows
+        # still work.
         dispatcher.message.outer_middleware(subs_mw)
+        dispatcher.callback_query.outer_middleware(subs_mw)
         dispatcher["subscriptions"] = services.subscriptions
 
     # Stage 2 — admin-related middlewares (none needed: filters handle access).

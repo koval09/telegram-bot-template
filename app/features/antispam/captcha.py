@@ -249,6 +249,18 @@ class CaptchaService:
                 user_id, UserStatus.active, now=self._clock()
             )
             log.info("antispam.captcha.passed", user_id=user_id)
+            try:
+                await self._audit.record_info(
+                    event="captcha_passed",
+                    actor_id=user_id,
+                    target_id=user_id,
+                )
+            except Exception as exc:
+                log.warning(
+                    "antispam.captcha.audit_pass_failed",
+                    user_id=user_id,
+                    error=repr(exc),
+                )
             if self._on_passed is not None:
                 # The post-pass callback (typically referral crediting)
                 # must never block the caller's response; isolate any
